@@ -1,0 +1,4 @@
+apache-flink==1.18.0
+kafka-python>=2.0.2
+python-dotenv>=1.0.00
+# any other libraries your job needs, e.g. requests

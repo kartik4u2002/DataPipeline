@@ -1,0 +1,195 @@
+services:
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.4.1
+    container_name: zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - "2181:2181"
+    networks:
+      - flink-net
+    healthcheck:
+      test: ["CMD", "bash", "-c", "nc -z localhost 2181 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  kafka-broker:
+    image: confluentinc/cp-kafka:7.4.1
+    container_name: kafka-broker
+    depends_on:
+      - zookeeper
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,PLAINTEXT_HOST://0.0.0.0:29092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka-broker:9092,PLAINTEXT_HOST://kafka-broker:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+    ports:
+      - "9092:9092"
+      - "29092:29092"
+    networks:
+      - flink-net
+    healthcheck:
+      # Simple port check for 9092; adjust if your image doesn't have nc
+      test: ["CMD", "bash", "-c", "nc -z localhost 9092 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  #postgres:
+  #  image: postgres:15
+  #  container_name: postgres
+  #  environment:
+  #    POSTGRES_USER: postgres
+  #    POSTGRES_PASSWORD: postgres_password
+  #    POSTGRES_DB: newsdb
+  #  volumes:
+  #    - pgdata:/var/lib/postgresql/data
+  #  ports:
+  #    - "5432:5432"
+  #  healthcheck:
+  #    test: ["CMD", "pg_isready", "-U", "postgres"]
+  #    interval: 10s
+  #    timeout: 5s
+  #    retries: 10
+
+  # Producer service: builds app image and runs producer
+  # producer:
+  #   build:
+  #     context: .                 # adjust to ./kafka if Dockerfile + code live there
+  #     dockerfile: kafka/Dockerfile
+  #   depends_on:
+  #     zookeeper:
+  #       condition: service_started
+  #     kafka-broker:
+  #       condition: service_healthy
+  #   env_file:
+  #     - .env
+  #   environment:
+  #     - KAFKA_BROKER=kafka-broker:9092
+  #     - KAFKA_TOPIC=news_topic
+  #     - PYTHONPATH=/app
+  #   volumes:
+  #     - ./kafka:/app/kafka       # optional: live-mount source for dev
+  #   command: ["python", "/app/kafka/producer.py"]
+  #   restart: "no"
+
+  #Consumer service: builds app image and runs consumer
+  consumer:
+    build:
+      context: .
+      dockerfile: kafka/Dockerfile
+    depends_on:
+      kafka-broker:
+        condition: service_healthy
+    env_file:
+      - .env
+    networks:
+      - flink-net
+    environment:
+      - KAFKA_BROKER=kafka-broker:9092
+      - KAFKA_CONSUMER_TOPIC=news_topic
+      - FORWARD_MODE=kafka
+      - FLINK_INPUT_TOPIC=flink_input_topic
+      - PYTHONPATH=/app
+    volumes:
+      - ./kafka:/app/kafka
+    command: ["/bin/bash", "-c", "echo 'Hello World'; sleep infinity"]
+    restart: "no"
+
+  # DB writer: reads from Kafka and writes to Postgres
+  # db-writer:
+  #   build:
+  #     context: .
+  #     dockerfile: kafka/Dockerfile
+  #   depends_on:
+  #     kafka-broker:
+  #       condition: service_healthy
+  #     postgres:
+  #       condition: service_healthy
+  #   env_file:
+  #     - .env
+  #   environment:
+  #     - KAFKA_BROKER=kafka-broker:9092
+  #     - KAFKA_CONSUMER_TOPIC=flink_output_topic
+  #     - POSTGRES_HOST=postgres
+  #     - POSTGRES_PORT=5432
+  #     - POSTGRES_DB=newsdb
+  #     - POSTGRES_USER=postgres
+  #     - POSTGRES_PASSWORD=postgres_password
+  #     - PYTHONPATH=/app
+  #   volumes:
+  #     - ./kafka:/app/kafka
+  #   command: ["python", "/app/kafka/consumer_db.py"]
+  #   restart: "no"
+
+  # API service (original)
+  # api:
+  #   build:
+  #     context: ./API
+  #     dockerfile: Dockerfile
+  #   env_file:
+  #     - .env
+  #   volumes:
+  #     - ./API:/app
+  #   depends_on:
+  #     - kafka-broker
+  # jobmanager:
+  #   image: flink:latest
+  #   volumes:
+  #     - ./connectors/flink-connector-kafka-4.0.1-2.0.jar:/opt/flink/lib/flink-connector-kafka-4.0.1-2.0.jar
+  #   container_name: flink-jobmanager
+  #   command: jobmanager
+  #   environment:
+  #     - JOB_MANAGER_RPC_ADDRESS=jobmanager
+  #   ports:
+  #     - "8081:8081"
+  #   networks:
+  #     - flink-net
+  #   healthcheck:
+  #     test: ["CMD", "bash", "-c", "curl -sS http://jobmanager:8081/overview || exit 1"]
+  #     interval: 5s
+  #     timeout: 3s
+  #     retries: 12
+  # taskmanager:
+  #   image: flink:latest
+  #   volumes:
+  #     - ./connectors/flink-connector-kafka-4.0.1-2.0.jar:/opt/flink/lib/flink-connector-kafka-4.0.1-2.0.jar
+  #   container_name: flink-taskmanager
+  #   command: taskmanager
+  #   depends_on:
+  #     - jobmanager
+  #   environment:
+  #     - JOB_MANAGER_RPC_ADDRESS=jobmanager
+  #   networks:
+  #     - flink-net
+    
+  # flink-job:
+  #   build:
+  #     context: ./flink
+  #     dockerfile: Dockerfile
+  #   image: flink_local:latest
+  #   depends_on:
+  #     - kafka-broker
+  #     - jobmanager
+  #     - taskmanager
+  #   environment:
+  #     - KAFKA_BOOTSTRAP_SERVERS=kafka-broker:9092
+  #     - KAFKA_TOPIC=flink_input_topic
+  #     - FLINK_OUTPUT_TOPIC=flink_output_topic
+  #     - GROUP_ID=flink-group
+  #   restart: "no"
+  #   networks:
+  #   - flink-net
+networks:
+  flink-net:
+    driver: bridge
+
+volumes:
+  pgdata:
