@@ -62,7 +62,6 @@ Each stage of the pipeline is modular and can be scaled or modified independentl
 
 <img width="1784" height="759" alt="image" src="https://github.com/user-attachments/assets/75c4cc46-2316-4822-82c5-c1b4efb698b5" />
 
-![Uploading image.png…]()
 
 
 
