@@ -6,7 +6,7 @@ from pymongo import MongoClient, errors as pymongo_errors
 
 load_dotenv()
 
-MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017")
+MONGO_URI = os.getenv("MONGO_URI")
 MONGO_DB = os.getenv("MONGO_DB", "news_db")
 MONGO_COLLECTION = os.getenv("MONGO_COLLECTION", "articles")
 

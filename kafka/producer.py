@@ -50,4 +50,5 @@ if __name__ == "__main__":
     while True:
         produce_news()
         print("⏳ Sleeping for 60 seconds before next fetch...")
-        time.sleep(60)
+        # time.sleep(60)
+        time.sleep(86400)

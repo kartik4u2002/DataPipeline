@@ -5,3 +5,9 @@ requests>=2.30.0
 python-dateutil>=2.8.2
 newsapi-python>=0.2.7
 pymongo
+
+# added for NLP:
+beautifulsoup4
+nltk
+regex
+spacy

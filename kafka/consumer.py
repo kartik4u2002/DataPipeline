@@ -732,16 +732,16 @@
 #     main()
 
 
-# consumer.py
 import os
 import json
 import time
 import logging
 import signal
+import uuid
 from dotenv import load_dotenv
 from kafka import KafkaConsumer
 
-# local modules
+from nlp_mcq import generate_mcqs, sanitize_paragraph
 from process import extract as extract_fields
 from consumer_db import MongoStore, create_mongo_client
 
@@ -750,19 +750,45 @@ load_dotenv()
 # Kafka config
 KAFKA_BROKER = os.getenv("KAFKA_BROKER", "kafka-broker:9092")
 KAFKA_CONSUMER_TOPIC = os.getenv("KAFKA_CONSUMER_TOPIC", "news_topic")
-CONSUMER_GROUP = os.getenv("CONSUMER_GROUP", "news-consumer-group")
+
+# Auto-generate fresh consumer group (always read earliest)
+CONSUMER_GROUP = os.getenv("CONSUMER_GROUP")
+if not CONSUMER_GROUP:
+    CONSUMER_GROUP = f"news-consumer-{uuid.uuid4().hex[:8]}"
+
 AUTO_COMMIT = os.getenv("AUTO_COMMIT", "true").lower() in ("1", "true", "yes")
+
+# MongoDB Atlas settings
+MONGO_URI = os.getenv("MONGO_URI")  # MUST be mongodb+srv://...
+MONGO_DB = os.getenv("MONGO_DB", "news_db")
+MONGO_COLLECTION = os.getenv("MONGO_COLLECTION", "articles")
 
 # Logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("news-consumer")
 
+logger.info("Using consumer group: %s", CONSUMER_GROUP)
+logger.info("Using MongoDB URI: %s", MONGO_URI)
+
+
 shutdown_requested = False
+
+
+def build_paragraph_from_article(a: dict) -> str:
+    parts = [
+        a.get("title", ""),
+        a.get("description", ""),
+        a.get("content", "")
+    ]
+    cleaned = [sanitize_paragraph(p) for p in parts if p]
+    return ". ".join(c for c in cleaned if c).strip()
+
 
 def handle_sigterm(signum, frame):
     global shutdown_requested
     shutdown_requested = True
     logger.info("Shutdown requested (signal %s)", signum)
+
 
 signal.signal(signal.SIGINT, handle_sigterm)
 signal.signal(signal.SIGTERM, handle_sigterm)
@@ -776,27 +802,28 @@ def create_consumer():
         group_id=CONSUMER_GROUP,
         auto_offset_reset="earliest",
         enable_auto_commit=AUTO_COMMIT,
-        value_deserializer=lambda v: json.loads(v.decode("utf-8")) if v is not None else None,
+        value_deserializer=lambda v: json.loads(v.decode("utf-8")) if v else None,
     )
     return consumer
 
 
 def main():
-    logger.info("Starting consumer -> process -> consumerdb pipeline")
-    consumer = create_consumer()
+    logger.info("Starting consumer -> MCQ -> MongoDB Atlas pipeline")
 
-    # create Mongo store
+    # Connect to MongoDB Atlas
     try:
-        mongo_client = create_mongo_client()
+        mongo_client = create_mongo_client()      # uses MONGO_URI env from consumer_db.py
         store = MongoStore(mongo_client)
-    except Exception as e:
-        logger.exception("Could not connect to MongoDB. Exiting.")
+        logger.info("Connected to MongoDB Atlas cluster.")
+    except Exception:
+        logger.exception("Could not connect to MongoDB Atlas. Exiting.")
         return
+
+    consumer = create_consumer()
 
     try:
         for msg in consumer:
             if shutdown_requested:
-                logger.info("Shutdown detected, breaking consumption loop")
                 break
 
             message_value = msg.value
@@ -805,24 +832,18 @@ def main():
             logger.info("Consumed message offset=%s partition=%s key=%s",
                         msg.offset, msg.partition, message_key)
 
-            # debug prints (optional)
-            print("\n>>>> BEFORE PROCESSING (raw message) <<<<")
-            print("Message Key:", message_key)
-            print("Message Type:", type(message_value))
-            try:
-                print(json.dumps(message_value, indent=4, ensure_ascii=False))
-            except Exception:
-                print(message_value)
+            # Debug prints
+            print("\n>>>> RAW MESSAGE <<<<")
+            print(json.dumps(message_value, indent=4, ensure_ascii=False))
             print("===============================================\n")
 
-            # process
             extracted = extract_fields(message_value)
 
-            print("\n<<<< AFTER PROCESSING (extracted) >>>>")
-            try:
-                print(json.dumps(extracted, indent=4, ensure_ascii=False))
-            except Exception:
-                print(extracted)
+            paragraph = build_paragraph_from_article(message_value)
+            mcqs = generate_mcqs(paragraph, max_questions=10) if paragraph else []
+
+            print("\n<<<< MCQs GENERATED >>>>")
+            print("MCQ Count:", len(mcqs))
             print("===============================================\n")
 
             payload = {
@@ -832,34 +853,35 @@ def main():
                 "kafka_key": message_key,
                 "received_at": int(time.time()),
                 "payload": message_value,
-                "extracted": extracted,
+                "extracted": {
+                    "paragraph_source": "consumer_built",
+                    "mcq_count": len(mcqs),
+                    "mcqs": mcqs,
+                },
             }
 
-            # store
+            # Store in Atlas
             try:
                 store.insert(payload)
+                logger.info("Saved article + MCQs to MongoDB Atlas.")
             except Exception:
-                logger.exception("Failed to store payload in MongoDB")
+                logger.exception("Failed to insert into MongoDB Atlas")
 
-            # manual commit if needed
             if not AUTO_COMMIT:
                 consumer.commit()
 
-            # continue to next message
-            if shutdown_requested:
-                break
-
     except Exception as e:
         logger.exception("Unexpected error in consumer loop: %s", e)
+
     finally:
-        logger.info("Closing consumer and MongoDB client")
+        logger.info("Closing consumer and MongoDB Atlas client")
         try:
             consumer.close()
-        except Exception:
+        except:
             pass
         try:
             store.close()
-        except Exception:
+        except:
             pass
 
 
