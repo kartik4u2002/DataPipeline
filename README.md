@@ -26,6 +26,11 @@ Each stage of the pipeline is modular and can be scaled or modified independentl
 
 ## 🧠 Features
 
+
+
+<img width="1740" height="608" alt="image" src="https://github.com/user-attachments/assets/643accdb-9b79-4023-b23b-f5c84c912092" />
+
+
 - Real-time news ingestion from [NewsAPI](https://newsapi.org/).  
 - Lightweight data transformation in Python.  
 - Asynchronous message passing via Kafka topics.  
@@ -57,5 +62,11 @@ Each stage of the pipeline is modular and can be scaled or modified independentl
 │ ├── config.py # Loads environment variables
 │ └── utils.py # Helper functions (optional)
 └── docker-compose.yml # For running Kafka locally (optional)
+
+
+<img width="1784" height="759" alt="image" src="https://github.com/user-attachments/assets/75c4cc46-2316-4822-82c5-c1b4efb698b5" />
+
+![Uploading image.png…]()
+
 
 
