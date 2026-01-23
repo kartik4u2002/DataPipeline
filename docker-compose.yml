@@ -308,6 +308,7 @@ services:
       KAFKA_BROKER: kafka-broker:9092
       KAFKA_CONSUMER_TOPIC: news_topic
       PYTHONPATH: /app
+      MONGO_URI: mongodb://host.docker.internal:27017/quizdb
     volumes:
       - ./kafka:/app/kafka
     command: ["python", "/app/kafka/consumer.py"]
