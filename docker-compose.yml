@@ -401,6 +401,135 @@
 # volumes:
 #   mongo_data:
 
+# services:
+#   zookeeper:
+#     image: confluentinc/cp-zookeeper:7.4.1
+#     container_name: zookeeper
+#     environment:
+#       ZOOKEEPER_CLIENT_PORT: 2181
+#       ZOOKEEPER_TICK_TIME: 2000
+#     ports:
+#       - "2181:2181"
+#     healthcheck:
+#       test: ["CMD-SHELL", "zookeeper-shell localhost:2181 ls / >/dev/null 2>&1 || exit 1"]
+#       interval: 10s
+#       timeout: 5s
+#       retries: 10
+
+#   kafka-broker:
+#     image: confluentinc/cp-kafka:7.4.1
+#     container_name: kafka-broker
+#     depends_on:
+#       zookeeper:
+#         condition: service_healthy
+#     environment:
+#       KAFKA_BROKER_ID: 1
+#       KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+#       KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,PLAINTEXT_HOST://0.0.0.0:29092
+#       KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka-broker:9092,PLAINTEXT_HOST://localhost:29092
+#       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+#       KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+#       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+#       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+#       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+#       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+#     ports:
+#       - "9092:9092"
+#       - "29092:29092"
+#     healthcheck:
+#       test: ["CMD", "bash", "-lc", "nc -z localhost 9092"]
+#       interval: 10s
+#       timeout: 5s
+#       retries: 12
+
+#   mongo:
+#     image: mongo:6
+#     container_name: mongo
+#     restart: always
+#     ports:
+#       - "27017:27017"
+#     volumes:
+#       - mongo_data:/data/db
+#     healthcheck:
+#       test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+#       interval: 10s
+#       timeout: 5s
+#       retries: 10
+
+#   app-base:
+#     build:
+#       context: .
+#       dockerfile: kafka/Dockerfile
+#     image: quiz-pipeline-app:latest
+#     env_file:
+#       - .env
+#     environment:
+#       PYTHONPATH: /app
+#     volumes:
+#       - ./kafka:/app/kafka
+
+#   producer:
+#     image: quiz-pipeline-app:latest
+#     depends_on:
+#       kafka-broker:
+#         condition: service_healthy
+#     env_file:
+#       - .env
+#     environment:
+#       KAFKA_BROKER: kafka-broker:9092
+#       KAFKA_TOPIC: news_topic
+#       PYTHONPATH: /app
+#     volumes:
+#       - ./kafka:/app/kafka
+#     command: ["python", "/app/kafka/producer.py"]
+#     restart: unless-stopped
+
+#   consumer:
+#     image: quiz-pipeline-app:latest
+#     depends_on:
+#       kafka-broker:
+#         condition: service_healthy
+#       mongo:
+#         condition: service_healthy
+#     env_file:
+#       - .env
+#     environment:
+#       KAFKA_BROKER: kafka-broker:9092
+#       KAFKA_CONSUMER_TOPIC: news_topic
+#       PYTHONPATH: /app
+#       MONGO_URI: mongodb://mongo:27017/quizdb
+#     volumes:
+#       - ./kafka:/app/kafka
+#     command: ["python", "/app/kafka/consumer.py"]
+#     restart: unless-stopped
+
+#   app:
+#     build:
+#       context: .
+#       dockerfile: kafka/Dockerfile
+#     container_name: datapipeline_app
+#     depends_on:
+#       mongo:
+#         condition: service_healthy
+#     env_file:
+#       - .env
+#     environment:
+#       MONGO_URI: mongodb://mongo:27017/quizdb
+#       PYTHONPATH: /app
+#     volumes:
+#       - ./kafka:/app/kafka
+#     ports:
+#       - "8501:8501"
+#     command: >
+#       streamlit run kafka/quiz_app.py
+#       --server.address=0.0.0.0
+#       --server.port=8501
+#     restart: always
+
+# volumes:
+#   mongo_data:
+
+
 services:
   zookeeper:
     image: confluentinc/cp-zookeeper:7.4.1
@@ -442,20 +571,6 @@ services:
       timeout: 5s
       retries: 12
 
-  mongo:
-    image: mongo:6
-    container_name: mongo
-    restart: always
-    ports:
-      - "27017:27017"
-    volumes:
-      - mongo_data:/data/db
-    healthcheck:
-      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
-
   app-base:
     build:
       context: .
@@ -489,42 +604,14 @@ services:
     depends_on:
       kafka-broker:
         condition: service_healthy
-      mongo:
-        condition: service_healthy
     env_file:
       - .env
     environment:
       KAFKA_BROKER: kafka-broker:9092
       KAFKA_CONSUMER_TOPIC: news_topic
       PYTHONPATH: /app
-      MONGO_URI: mongodb://mongo:27017/quizdb
+      MONGO_URI: ${MONGO_URI}
     volumes:
       - ./kafka:/app/kafka
     command: ["python", "/app/kafka/consumer.py"]
     restart: unless-stopped
-
-  app:
-    build:
-      context: .
-      dockerfile: kafka/Dockerfile
-    container_name: datapipeline_app
-    depends_on:
-      mongo:
-        condition: service_healthy
-    env_file:
-      - .env
-    environment:
-      MONGO_URI: mongodb://mongo:27017/quizdb
-      PYTHONPATH: /app
-    volumes:
-      - ./kafka:/app/kafka
-    ports:
-      - "8501:8501"
-    command: >
-      streamlit run kafka/quiz_app.py
-      --server.address=0.0.0.0
-      --server.port=8501
-    restart: always
-
-volumes:
-  mongo_data:
