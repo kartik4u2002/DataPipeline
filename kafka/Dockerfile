@@ -12,10 +12,16 @@ RUN apt-get update \
 
 COPY kafka/requirements.txt /app/requirements.txt
 RUN python -m pip install --upgrade pip setuptools wheel \
-    && pip install --no-cache-dir -r /app/requirements.txt
+    && pip install --no-cache-dir -r /app/requirements.txt\
+    && pip install --no-cache-dir streamlit
+
 RUN python -m spacy download en_core_web_sm
 
 # Copy both API and kafka folders into /app
 #COPY kafka/API /app/API
 COPY kafka /app/kafka
+
+ENV PYTHONPATH=/app
+# Default command (overridden by docker-compose)
+CMD ["python", "-c", "print('Container ready')"]
 
